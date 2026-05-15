@@ -206,15 +206,6 @@ def manifest():
         "display": "standalone",
         "background_color": "#ffffff",
         "theme_color": "#2196f3",
-        @app.route("/manifest.json")
-def manifest():
-    return {
-        "name": "Number Stats",
-        "short_name": "Stats",
-        "start_url": "/",
-        "display": "standalone",
-        "background_color": "#ffffff",
-        "theme_color": "#2196f3",
         "icons": [
         {
             "src": "/static/icon.png",
