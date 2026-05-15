@@ -10,7 +10,8 @@ app = Flask(__name__)
 
 DATABASE_URL = os.environ.get("DATABASE_URL")
 USE_SUPABASE = DATABASE_URL is not None
-
+print("DATABASE_URL:", DATABASE_URL)
+print("USE_SUPABASE:", USE_SUPABASE)
 
 def get_conn():
     if USE_SUPABASE:
