@@ -180,9 +180,51 @@ def manifest():
 
 
 # ------------------------
-#if __name__ == "__main__":
-#    app.run(debug=True)
 import os
+import psycopg2
+DATABASE_URL = os.environ.get("DATABASE_URL")
 
+def get_conn():
+    return psycopg2.connect(DATABASE_URL)
+@app.route("/add", methods=["POST"])
+def add():
+    data = request.json
+    nums = data["numbers"]
+
+    conn = get_conn()
+    cur = conn.cursor()
+
+    # round取得
+    cur.execute("SELECT MAX(round) FROM records")
+    r = cur.fetchone()[0]
+    r = (r or 0) + 1
+
+    cur.execute(
+        "INSERT INTO records (round, numbers) VALUES (%s, %s)",
+        (r, ",".join(map(str, nums)))
+    )
+
+    conn.commit()
+    cur.close()
+    conn.close()
+
+    return jsonify({"status": "ok"})
+
+def get_all_records():
+    conn = get_conn()
+    cur = conn.cursor()
+
+    cur.execute("SELECT round, numbers FROM records")
+    rows = cur.fetchall()
+
+    cur.close()
+    conn.close()
+
+    result = []
+    for r, nums in rows:
+        numbers = list(map(int, nums.split(",")))
+        result.append({"round": r, "numbers": numbers})
+
+    return result
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
