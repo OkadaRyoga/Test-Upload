@@ -64,14 +64,22 @@ def add():
     data = request.json
     nums = data["numbers"]
 
-    r = get_next_round()
+    conn = get_conn()
+    cur = conn.cursor()
 
-    with sqlite3.connect(DB) as conn:
-        c = conn.cursor()
-        c.execute(
-            "INSERT INTO records (round, numbers) VALUES (?, ?)",
-            (r, ",".join(map(str, nums)))
-        )
+    # round取得
+    cur.execute("SELECT MAX(round) FROM records")
+    r = cur.fetchone()[0]
+    r = (r or 0) + 1
+
+    cur.execute(
+        "INSERT INTO records (round, numbers) VALUES (%s, %s)",
+        (r, ",".join(map(str, nums)))
+    )
+
+    conn.commit()
+    cur.close()
+    conn.close()
 
     return jsonify({"status": "ok"})
 
@@ -180,35 +188,15 @@ def manifest():
 
 
 # ------------------------
+#if __name__ == "__main__":
+#    app.run(debug=True)
 import os
 import psycopg2
 DATABASE_URL = os.environ.get("DATABASE_URL")
 
 def get_conn():
     return psycopg2.connect(DATABASE_URL)
-@app.route("/add", methods=["POST"])
-def add():
-    data = request.json
-    nums = data["numbers"]
 
-    conn = get_conn()
-    cur = conn.cursor()
-
-    # round取得
-    cur.execute("SELECT MAX(round) FROM records")
-    r = cur.fetchone()[0]
-    r = (r or 0) + 1
-
-    cur.execute(
-        "INSERT INTO records (round, numbers) VALUES (%s, %s)",
-        (r, ",".join(map(str, nums)))
-    )
-
-    conn.commit()
-    cur.close()
-    conn.close()
-
-    return jsonify({"status": "ok"})
 
 def get_all_records():
     conn = get_conn()
@@ -226,5 +214,6 @@ def get_all_records():
         result.append({"round": r, "numbers": numbers})
 
     return result
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
