@@ -200,8 +200,8 @@ def co_search():
 @app.route("/manifest.json")
 def manifest():
     return {
-        "name": "Number Stats",
-        "short_name": "Stats",
+        "name": "AnimaLottaStatistics",
+        "short_name": "ALS",
         "start_url": "/",
         "display": "standalone",
         "background_color": "#ffffff",
