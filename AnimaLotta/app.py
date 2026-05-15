@@ -1,16 +1,33 @@
 from flask import Flask, request, jsonify, render_template
-import sqlite3
 from collections import defaultdict
+import os
 
 app = Flask(__name__)
-DB = "data.db"
+
+# =========================
+# DB切り替え
+# =========================
+
+DATABASE_URL = os.environ.get("DATABASE_URL")
+USE_SUPABASE = DATABASE_URL is not None
 
 
-# ------------------------
-# DB初期化
-# ------------------------
+def get_conn():
+    if USE_SUPABASE:
+        import psycopg2
+        return psycopg2.connect(DATABASE_URL, sslmode='require')
+    else:
+        import sqlite3
+        return sqlite3.connect("data.db")
+
+
+# =========================
+# SQLite初期化（ローカルのみ）
+# =========================
+
 def init_db():
-    with sqlite3.connect(DB) as conn:
+    if not USE_SUPABASE:
+        conn = get_conn()
         c = conn.cursor()
         c.execute("""
         CREATE TABLE IF NOT EXISTS records (
@@ -19,18 +36,26 @@ def init_db():
             numbers TEXT
         )
         """)
+        conn.commit()
+        conn.close()
+
 
 init_db()
 
 
-# ------------------------
-# 共通関数
-# ------------------------
+# =========================
+# 共通：全データ取得
+# =========================
+
 def get_all_records():
-    with sqlite3.connect(DB) as conn:
-        c = conn.cursor()
-        c.execute("SELECT round, numbers FROM records")
-        rows = c.fetchall()
+    conn = get_conn()
+    cur = conn.cursor()
+
+    cur.execute("SELECT round, numbers FROM records")
+    rows = cur.fetchall()
+
+    cur.close()
+    conn.close()
 
     result = []
     for r, nums in rows:
@@ -40,25 +65,19 @@ def get_all_records():
     return result
 
 
-def get_next_round():
-    with sqlite3.connect(DB) as conn:
-        c = conn.cursor()
-        c.execute("SELECT MAX(round) FROM records")
-        r = c.fetchone()[0]
-        return (r or 0) + 1
+# =========================
+# ページ
+# =========================
 
-
-# ------------------------
-# 画面
-# ------------------------
 @app.route("/")
 def index():
     return render_template("index.html")
 
 
-# ------------------------
-# 記録
-# ------------------------
+# =========================
+# 記録追加
+# =========================
+
 @app.route("/add", methods=["POST"])
 def add():
     data = request.json
@@ -72,10 +91,16 @@ def add():
     r = cur.fetchone()[0]
     r = (r or 0) + 1
 
-    cur.execute(
-        "INSERT INTO records (round, numbers) VALUES (%s, %s)",
-        (r, ",".join(map(str, nums)))
-    )
+    if USE_SUPABASE:
+        cur.execute(
+            "INSERT INTO records (round, numbers) VALUES (%s, %s)",
+            (r, ",".join(map(str, nums)))
+        )
+    else:
+        cur.execute(
+            "INSERT INTO records (round, numbers) VALUES (?, ?)",
+            (r, ",".join(map(str, nums)))
+        )
 
     conn.commit()
     cur.close()
@@ -84,9 +109,10 @@ def add():
     return jsonify({"status": "ok"})
 
 
-# ------------------------
-# 出現確率
-# ------------------------
+# =========================
+# 出現確率（3 / 5 / 8）
+# =========================
+
 @app.route("/stats")
 def stats():
     records = get_all_records()
@@ -101,14 +127,11 @@ def stats():
     for r in records:
         nums = r["numbers"]
 
-        # 各範囲でチェック
         for limit in [3, 5, 8]:
             subset = nums[:limit]
-
             for num in subset:
                 result[limit][num] += 1
 
-    # 確率化（試行数で割る）
     prob = {}
     for limit in result:
         prob[limit] = {
@@ -119,9 +142,10 @@ def stats():
     return jsonify(prob)
 
 
-# ------------------------
-# 条件付き共起
-# ------------------------
+# =========================
+# 共起検索（重み付き対応）
+# =========================
+
 @app.route("/co_search", methods=["POST"])
 def co_search():
     data = request.json
@@ -134,7 +158,6 @@ def co_search():
 
     n = len(selected)
 
-    # 一致条件
     if match_level == "full":
         threshold = n
     elif match_level == "n-1":
@@ -144,7 +167,7 @@ def co_search():
     else:
         threshold = n
 
-    total_weight = 0  # ← 全体重み（確率化用）
+    total_weight = 0
 
     for r in records:
         nums = r["numbers"]
@@ -153,18 +176,15 @@ def co_search():
         match_count = len(set(selected) & set(head))
 
         if match_count >= threshold:
-            # ✅ 重み（ここが重要）
             weight = match_count / n
-
-            # ← ここを変えることで精度調整可能
-            # weight = (match_count / n) ** 2  # 強めたいならこれ
+            # 強調したい場合
+            # weight = (match_count / n) ** 2
 
             for x in nums[n:]:
                 result[x] += weight
 
             total_weight += weight
 
-    # ✅ 出やすさを確率（％）に変換
     prob = {}
     for k, v in result.items():
         prob[k] = (v / total_weight * 100) if total_weight > 0 else 0
@@ -172,48 +192,23 @@ def co_search():
     return jsonify(prob)
 
 
-# ------------------------
-# PWA manifest
-# ------------------------
+# =========================
+# PWA
+# =========================
+
 @app.route("/manifest.json")
 def manifest():
     return {
-        "name": "AnimaLotta Statistics",
-        "short_name": "ALS",
+        "name": "Number Stats",
+        "short_name": "Stats",
         "start_url": "/",
         "display": "standalone",
-        "background_color": "#FFFFFF",
+        "background_color": "#ffffff",
         "theme_color": "#2196f3"
     }
 
 
-# ------------------------
-#if __name__ == "__main__":
-#    app.run(debug=True)
-import os
-import psycopg2
-DATABASE_URL = os.environ.get("DATABASE_URL")
-
-def get_conn():
-    return psycopg2.connect(DATABASE_URL)
-
-
-def get_all_records():
-    conn = get_conn()
-    cur = conn.cursor()
-
-    cur.execute("SELECT round, numbers FROM records")
-    rows = cur.fetchall()
-
-    cur.close()
-    conn.close()
-
-    result = []
-    for r, nums in rows:
-        numbers = list(map(int, nums.split(",")))
-        result.append({"round": r, "numbers": numbers})
-
-    return result
-
+# =========================
+#
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
